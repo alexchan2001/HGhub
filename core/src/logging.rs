@@ -17,7 +17,7 @@ pub(crate) fn utc_timestamp() -> Result<String, String> {
     format_utc(OffsetDateTime::now_utc())
 }
 
-pub(crate) fn append_debug(dir: &Path, message: &str) -> Result<(), String> {
+pub fn append_debug(dir: &Path, message: &str) -> Result<(), String> {
     let _writer = DEBUG_WRITER.lock().map_err(|_| "日志锁失败")?;
     fs::create_dir_all(dir).map_err(|_| "无法创建日志目录")?;
     let at = utc_timestamp()?;

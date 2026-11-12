@@ -1,0 +1,42 @@
+# HGhub 网页版（容器部署用）
+#
+# 多阶段构建：
+#   web  层：Node 24 + pnpm，构建前端 dist/
+#   rust 层：Rust 1.90，构建 axum 服务 binary（hghub-web）
+#   run  层：debian-slim + CA 证书，只放 binary 与 dist/，尽量小。
+#
+# 架构：网页版是独立 crate（web/），只依赖 hghub-core（core/，无 Tauri），
+# 所以 Rust 阶段不需要系统 WebKit/GTK 开发库，binary 也不链接 GUI 库
+# （ldd 验证见 ~/workspace/hghub/web-build-log.md）。
+#
+# 构建：docker build -f Dockerfile.web -t hghub-web .
+# 运行：docker run -e HG_WEB_PASSWORD=... -p 8900:8900 hghub-web
+#       （HG_WEB_PASSWORD 必须在运行时传入，绝不要写进镜像或 Dockerfile）
+# 注意：本镜像不含任何密钥、密码或安卓签名 keystore。
+
+# ── Stage 1: 前端 ─────────────────────────────────────────────
+FROM node:24-alpine AS web
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack prepare pnpm@10 --activate && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+# ── Stage 2: Rust ────────────────────────────────────────────
+FROM rust:1.90-bookworm AS rust
+WORKDIR /app
+COPY core ./core
+COPY web ./web
+RUN cargo build --release --manifest-path web/Cargo.toml
+
+# ── Stage 3: 运行 ────────────────────────────────────────────
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=rust /app/web/target/release/hghub-web /app/hghub-web
+COPY --from=web /app/dist /app/dist
+ENV PORT=8900 HG_WEB_DATA=/app/data
+EXPOSE 8900
+CMD ["/app/hghub-web"]

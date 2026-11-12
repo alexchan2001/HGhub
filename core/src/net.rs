@@ -125,6 +125,31 @@ fn proxy_override() -> Option<String> {
 /// 注意：reqwest 的 `system-proxy` 只在构建时读一次注册表 / 环境变量。代理软件被关掉后，
 /// 旧客户端仍会往 `127.0.0.1:7897` 建隧道，症状是满屏 `tunnel error: failed to create
 /// underlying connection`（浏览器却是通的，因为它每次都重读系统代理）。所以这里允许重建。
+/// 可选的额外根证书（仅本地验证 / 企业 MITM 代理场景）：
+/// 环境变量 `HG_EXTRA_CA_PEM` 指向一个 PEM 文件（可含多个证书），设置时把其中的
+/// 证书追加为信任根（与内置 Mozilla roots 并存，只增不减）；未设置时行为与原来
+/// 完全一致。不要把任何证书文件路径写进代码，路径只从环境变量读。
+fn extra_root_certs(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    let Ok(path) = std::env::var("HG_EXTRA_CA_PEM") else {
+        return builder;
+    };
+    let path = path.trim().to_string();
+    if path.is_empty() {
+        return builder;
+    }
+    let Ok(pem) = std::fs::read(&path) else {
+        return builder;
+    };
+    let Ok(certs) = reqwest::Certificate::from_pem_bundle(&pem) else {
+        return builder;
+    };
+    let mut b = builder;
+    for cert in certs {
+        b = b.add_root_certificate(cert);
+    }
+    b
+}
+
 fn build_client(host: &str, addrs: &[SocketAddr]) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent(UA)
@@ -143,7 +168,7 @@ fn build_client(host: &str, addrs: &[SocketAddr]) -> Result<reqwest::Client, Str
         let proxy = reqwest::Proxy::all(&p).map_err(|_| "HGHUB_PROXY 配置无效（已隐藏原始值）")?;
         builder = builder.proxy(proxy);
     }
-    builder
+    extra_root_certs(builder)
         .build()
         .map_err(|_| "无法创建 HTTP 客户端".to_string())
 }

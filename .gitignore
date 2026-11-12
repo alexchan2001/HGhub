@@ -8,6 +8,8 @@ dist-ssr/
 test-results/
 src-tauri/target/
 src-tauri/gen/
+core/target/
+web/target/
 *.local
 
 # 编辑器 / 系统

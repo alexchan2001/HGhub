@@ -1555,6 +1555,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hghub-core"
+version = "1.2.1"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "http",
+ "once_cell",
+ "percent-encoding",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1609,6 +1626,7 @@ version = "1.2.1"
 dependencies = [
  "aes",
  "base64 0.22.1",
+ "hghub-core",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

@@ -22,11 +22,23 @@ export const platform: "android" | "ios" | "windows" | "macos" | "linux" =
 /** 移动端（安卓 / iOS）共用触屏界面 */
 export const isMobile = isAndroid || isIos;
 
+/** 是否跑在 Tauri 壳里（桌面/移动端应用）。网页版没有 __TAURI__，走 fetch 调本服务。 */
+export const isTauri =
+  typeof window !== "undefined" &&
+  ("__TAURI__" in window || "__TAURI_INTERNALS__" in window);
+/** 网页版（浏览器直接打开本服务提供的页面） */
+export const isWeb = !isTauri;
+
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
  *  Windows / Android → `http://<scheme>.localhost`
  *  macOS / iOS / Linux → `<scheme>://localhost`
+ *  网页版 → 同源 `/media`（axum 服务代理，见 `src-tauri/src/bin/web.rs`）
  *  Rust 侧 `src-tauri/src/lib.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
-export const LOCAL = isMacos || isIos || isLinux ? "hg://localhost" : "http://hg.localhost";
+export const LOCAL = isWeb
+  ? "/media"
+  : isMacos || isIos || isLinux
+    ? "hg://localhost"
+    : "http://hg.localhost";
 
 /** src 是否已是本地协议地址（避免在详情页把代理地址再包一层） */
 export const isLocalMedia = (src: string) => src.startsWith(`${LOCAL}/`);
@@ -40,10 +52,37 @@ export const playlist = (url: string) => `${LOCAL}/hls?u=${encodeURIComponent(ur
 
 /* ── 调用封装 ───────────────────────────────────────────── */
 
-/** 写一行到应用数据目录 debug.log（用户反馈「打不开」时要的就是它） */
-export const logLine = (msg: string) => invoke("debug_log", { msg }).catch(() => {});
+/** 写一行到应用数据目录 debug.log（用户反馈「打不开」时要的就是它）；网页版只写浏览器控制台。 */
+export const logLine = (msg: string) => {
+  if (isTauri) invoke("debug_log", { msg }).catch(() => {});
+  else console.debug(msg);
+};
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isWeb) {
+    // 网页版：同源 fetch 调 axum 服务的 /api/<命令名>，参数与返回值与 invoke 一致。
+    const r = await fetch(`/api/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(args ?? {}),
+    });
+    if (r.status === 401) {
+      // 会话过期或未登录：回登录页（登录成功后再回来）。
+      window.location.href = "/login";
+      throw new Error("未登录");
+    }
+    const data: unknown = await r.json().catch(() => null);
+    if (!r.ok) {
+      const msg =
+        data && typeof data === "object" && typeof (data as { error?: unknown }).error === "string"
+          ? (data as { error: string }).error
+          : `服务器请求失败（HTTP ${r.status}），请稍后重试或在设置中切换线路`;
+      logLine(`[api] ${cmd} → ${msg}`);
+      throw new Error(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg);
+    }
+    return data as T;
+  }
   try {
     return (await invoke(cmd, args)) as T;
   } catch (e) {
@@ -97,10 +136,10 @@ export const api = {
   commentSend: (id: number, ep: number, text: string, replyId?: number) =>
     call<unknown>("api_comment_send", { id, ep, text, replyId: replyId ?? null }),
 
-  clearCache: () => invoke<void>("cache_clear"),
-  netDiag: () => invoke<Record<string, unknown>>("net_diag"),
-  postLike: (id: number, on: boolean) => invoke<unknown>("api_post_like", { id, on }),
-  postCollect: (id: number, on: boolean) => invoke<unknown>("api_post_collect", { id, on }),
+  clearCache: () => call<void>("cache_clear"),
+  netDiag: () => call<Record<string, unknown>>("net_diag"),
+  postLike: (id: number, on: boolean) => call<unknown>("api_post_like", { id, on }),
+  postCollect: (id: number, on: boolean) => call<unknown>("api_post_collect", { id, on }),
   postComments: (id: number, page: number, size: number) => call<CommentPage>("api_post_comments", { id, page, size }),
   like: (id: number, ep: number, on: boolean) => call<unknown>("api_like", { id, ep, on }),
   collect: (id: number, on: boolean) => call<unknown>("api_collect", { id, on }),
@@ -114,7 +153,14 @@ export const api = {
 
   /* 更新检查：对比 GitHub Release 的 tag */
   checkUpdate: () => call<UpdateInfo>("check_update"),
-  openUrl: (url: string) => call<void>("open_url", { url }),
+  // 网页版没有 Tauri opener：直接新标签页打开。
+  openUrl: (url: string) => {
+    if (isWeb) {
+      window.open(url, "_blank", "noopener");
+      return Promise.resolve();
+    }
+    return call<void>("open_url", { url });
+  },
 };
 
 /* ── 更新检查 ───────────────────────────────────────────── */

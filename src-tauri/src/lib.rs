@@ -1,15 +1,9 @@
-mod api;
-mod lines;
-mod logging;
+pub mod api;
 #[cfg(target_os = "macos")]
 mod macos_titlebar;
-mod media;
-mod net;
-mod network_policy;
-mod playback_log;
-mod session;
 
-use api::Api;
+use hghub_core::api::Api;
+use hghub_core::{media, net, network_policy, playback_log};
 use tauri::Manager;
 
 fn allowed_dev_host(host: &str) -> bool {
@@ -132,10 +126,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             api::app_boot,
-            playback_log::playback_log_status,
-            playback_log::playback_log_set,
-            playback_log::playback_log_write,
-            playback_log::playback_log_read,
+            api::playback_log_status,
+            api::playback_log_set,
+            api::playback_log_write,
+            api::playback_log_read,
             api::security_set,
             api::debug_log,
             api::net_diag,

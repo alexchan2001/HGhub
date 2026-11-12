@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData } from "hls.js";
+import { isWeb } from "./api";
 
 type Data = Record<string, unknown>;
 type Status = { enabled: boolean; path: string | null; error: string | null };
@@ -9,11 +10,37 @@ type Entry = { event: string; data: Data };
 type Snapshot = Status & { ready: boolean; pending: boolean };
 
 // Separate transport also lets browser regressions verify diagnostics without Tauri or upstream.
+// 网页版：同源 fetch 调 axum 服务的 /api/<命令名>，与 api.ts 的 call 同义。
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isWeb) {
+    const r = await fetch(`/api/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(args ?? {}),
+    });
+    if (r.status === 401) {
+      window.location.href = "/login";
+      throw new Error("未登录");
+    }
+    const data: unknown = await r.json().catch(() => null);
+    if (!r.ok) {
+      const msg =
+        data && typeof data === "object" && typeof (data as { error?: unknown }).error === "string"
+          ? (data as { error: string }).error
+          : `HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+    return data as T;
+  }
+  return invoke<T>(cmd, args);
+}
+
 export const playbackLogApi = {
-  status: () => invoke<Status>("playback_log_status"),
-  set: (enabled: boolean) => invoke<Status>("playback_log_set", { enabled }),
-  write: (entries: Entry[]) => invoke<void>("playback_log_write", { entries }),
-  read: () => invoke<string>("playback_log_read"),
+  status: () => call<Status>("playback_log_status"),
+  set: (enabled: boolean) => call<Status>("playback_log_set", { enabled }),
+  write: (entries: Entry[]) => call<void>("playback_log_write", { entries }),
+  read: () => call<string>("playback_log_read"),
 };
 let state: Snapshot = { enabled: false, path: null, error: null, ready: false, pending: false };
 const listeners = new Set<() => void>();

@@ -1,0 +1,26 @@
+[package]
+name = "hghub-web"
+version = "1.2.1"
+description = "HGhub 网页版：独立 axum HTTP 服务（给 iPhone Safari 用），复用 hghub-core。"
+authors = ["HGhub"]
+license = "PolyForm-Noncommercial-1.0.0"
+edition = "2021"
+rust-version = "1.90"
+
+[[bin]]
+name = "hghub-web"
+path = "src/main.rs"
+
+[dependencies]
+hghub-core = { path = "../core" }
+axum = "0.8"
+serde_json = "1"
+url = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
